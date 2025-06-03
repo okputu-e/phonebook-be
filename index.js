@@ -1,9 +1,9 @@
+require("dotenv").config();
 const express = require("express");
 const morgan = require("morgan");
-const cors = require("cors");
 const app = express();
+const Person = require("./models/persons");
 
-app.use(cors());
 app.use(express.static("dist"));
 app.use(express.json());
 morgan.token("body", (req) => JSON.stringify(req.body));
@@ -11,95 +11,100 @@ app.use(
   morgan(":method :url :status :res[content-length] - :response-time ms :body")
 );
 
-function generateId() {
-  // Generate a random number between 1000000000 and 9999999999 (10 digits)
-  const min = 1000000000;
-  const max = 9999999999;
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-let persons = [
-  {
-    id: "1",
-    name: "Arto Hellas",
-    number: "040-123456",
-  },
-  {
-    id: "2",
-    name: "Ada Lovelace",
-    number: "39-44-5323523",
-  },
-  {
-    id: "3",
-    name: "Dan Abramov",
-    number: "12-43-234345",
-  },
-  {
-    id: "4",
-    name: "Mary Poppendieck",
-    number: "39-23-6423122",
-  },
-];
-
-app.get("/", (request, response) => {
-  response.send(`<h1>Hello</h1>`);
-});
-
 app.get("/api/persons", (request, response) => {
-  response.json(persons);
+  Person.find({}).then((person) => {
+    response.json(person);
+  });
 });
 
 app.get("/info", (resquest, response) => {
-  const numberOfContacts = persons.length;
-  const currentDayTime = new Date(8.64e15).toString();
-  response.send(`
-    <p>Phonebook has info ${numberOfContacts} people</p>
+  Person.countDocuments({}).then((count) => {
+    const currentDayTime = new Date(8.64e15).toString();
+    response.send(`
+    <p>Phonebook has info ${count} people</p>
     <p>${currentDayTime}</p>
   `);
+  });
 });
 
-app.get("/api/persons/:id", (request, response) => {
-  const id = request.params.id;
-  const person = persons.find((person) => person.id === id);
-  if (person) {
-    response.json(person);
-  } else {
-    response.status(404).end();
-  }
+app.get("/api/persons/:id", (request, response, next) => {
+  Person.findById(request.params.id)
+    .then((person) => {
+      person ? response.json(person) : response.status(404).end();
+    })
+    .catch((error) => next(error));
 });
 
-app.delete("/api/persons/:id", (request, response) => {
-  const id = request.params.id;
-  persons = persons.filter((person) => person.id !== id);
-  response.json(persons);
+app.delete("/api/persons/:id", (request, response, next) => {
+  Person.findByIdAndDelete(request.params.id)
+    .then((person) => {
+      if (person) {
+        response.status(204).end();
+      } else {
+        response.status(404).send({ error: "Person not found" });
+      }
+    })
+    .catch((error) => next(error));
 });
 
-app.post("/api/persons", (request, response) => {
-  const body = request.body;
+app.post("/api/persons", (request, response, next) => {
+  const { name, number } = request.body;
 
-  if (!body.name || !body.number) {
+  if (!name || !number) {
     return response.status(400).json({
       error: "The name or number is missing",
     });
   }
 
-  if (persons.find((person) => person.name === body.name)) {
-    return response.status(400).json({
-      error: "The name already exists in the phonebook",
-    });
-  }
+  const person = new Person({ name, number });
 
-  const person = {
-    name: body.name,
-    number: body.number,
-    id: generateId(),
-  };
-
-  persons = persons.concat(person);
-
-  response.json(person);
+  person
+    .save()
+    .then((savedPerson) => {
+      response.json(savedPerson);
+    })
+    .catch((error) => next(error));
 });
 
-const PORT = process.env.PORT || 3001;
+app.put("/api/persons/:id", (request, response, next) => {
+  const { name, number } = request.body;
+
+  Person.findById(request.params.id)
+    .then((person) => {
+      if (!person) return response.status(404).end();
+
+      person.name = name;
+      person.number = number;
+
+      return person.save().then((updatedPerson) => {
+        response.json(updatedPerson);
+      });
+    })
+    .catch((error) => next(error));
+});
+
+const unknownEndpoint = (request, response) => {
+  response.status(404).send({ error: "unknown endpoint" });
+};
+
+// handler of requests with unknown endpoint
+app.use(unknownEndpoint);
+
+const errorHandler = (error, request, response, next) => {
+  console.error(error.message);
+
+  if (error.name === "CastError") {
+    return response.status(400).send({ error: "malformatted id" });
+  } else if (error.name === "ValidationError") {
+    return response.status(400).json({ error: error.message });
+  }
+
+  next(error);
+};
+
+// this has to be the last loaded middleware, also all the routes should be registered before this!
+app.use(errorHandler);
+
+const PORT = process.env.PORT;
 app.listen(PORT);
 console.log(`running server at port ${PORT}`);
