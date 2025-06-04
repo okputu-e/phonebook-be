@@ -38,5 +38,3 @@ if (process.argv.length === 3) {
   console.log("Usage:\n  node mongo.js <password> [name number]");
   mongoose.connection.close();
 }
-
-// mongodb+srv://immanuelokputu94:S58QquScFIcXFExI@cluster0.yt6iomk.mongodb.net/phonebook?retryWrites=true&w=majority&appName=Cluster0
